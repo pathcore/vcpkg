@@ -55,39 +55,51 @@ function resolve([string]$targetBinary) {
     {
         return
     }
-    $targetBinaryDir = Split-Path $targetBinaryPath -parent
 
-    $a = $(dumpbin /DEPENDENTS $targetBinary | ? { $_ -match "^    [^ ].*\.dll" } | % { $_ -replace "^    ","" })
-    $a | % {
-        if ([string]::IsNullOrEmpty($_)) {
-            return
-        }
-        if ($g_searched.ContainsKey($_)) {
-            Write-Verbose "  ${_}: previously searched - Skip"
-            return
-        }
-        $g_searched.Set_Item($_, $true)
-        if (Test-Path "$installedDir\$_") {
-            deployBinary $baseTargetBinaryDir $installedDir "$_"
-            if (Test-Path function:\deployPluginsIfQt) { deployPluginsIfQt $baseTargetBinaryDir "$g_install_root\plugins" "$_" }
-            if (Test-Path function:\deployOpenNI2) { deployOpenNI2 $targetBinaryDir "$g_install_root" "$_" }
-            if (Test-Path function:\deployPluginsIfMagnum) {
-                if ($g_is_debug) {
-                    deployPluginsIfMagnum $targetBinaryDir "$g_install_root\bin\magnum-d" "$_"
-                } else {
-                    deployPluginsIfMagnum $targetBinaryDir "$g_install_root\bin\magnum" "$_"
-                }
+    try
+    {
+        $mtx = New-Object System.Threading.Mutex($false, "VcpkgAppLocalResolve")
+        $mtx.WaitOne() | Out-Null
+
+        $targetBinaryDir = Split-Path $targetBinaryPath -parent
+
+        $a = $(dumpbin /DEPENDENTS $targetBinary | ? { $_ -match "^    [^ ].*\.dll" } | % { $_ -replace "^    ","" })
+        $a | % {
+            if ([string]::IsNullOrEmpty($_)) {
+                return
             }
-            if (Test-Path function:\deployAzureKinectSensorSDK) { deployAzureKinectSensorSDK $targetBinaryDir "$g_install_root" "$_" }
-            resolve "$baseTargetBinaryDir\$_"
-        } elseif (Test-Path "$targetBinaryDir\$_") {
-            Write-Verbose "  ${_}: $_ not found in vcpkg; locally deployed"
-            resolve "$targetBinaryDir\$_"
-        } else {
-            Write-Verbose "  ${_}: $installedDir\$_ not found"
+            if ($g_searched.ContainsKey($_)) {
+                Write-Verbose "  ${_}: previously searched - Skip"
+                return
+            }
+            $g_searched.Set_Item($_, $true)
+            if (Test-Path "$installedDir\$_") {
+                deployBinary $baseTargetBinaryDir $installedDir "$_"
+                if (Test-Path function:\deployPluginsIfQt) { deployPluginsIfQt $baseTargetBinaryDir "$g_install_root\plugins" "$_" }
+                if (Test-Path function:\deployOpenNI2) { deployOpenNI2 $targetBinaryDir "$g_install_root" "$_" }
+                if (Test-Path function:\deployPluginsIfMagnum) {
+                    if ($g_is_debug) {
+                        deployPluginsIfMagnum $targetBinaryDir "$g_install_root\bin\magnum-d" "$_"
+                    } else {
+                        deployPluginsIfMagnum $targetBinaryDir "$g_install_root\bin\magnum" "$_"
+                    }
+                }
+                if (Test-Path function:\deployAzureKinectSensorSDK) { deployAzureKinectSensorSDK $targetBinaryDir "$g_install_root" "$_" }
+                resolve "$baseTargetBinaryDir\$_"
+            } elseif (Test-Path "$targetBinaryDir\$_") {
+                Write-Verbose "  ${_}: $_ not found in vcpkg; locally deployed"
+                resolve "$targetBinaryDir\$_"
+            } else {
+                Write-Verbose "  ${_}: $installedDir\$_ not found"
+            }
         }
+        Write-Verbose "Done Resolving $targetBinary."
     }
-    Write-Verbose "Done Resolving $targetBinary."
+    finally
+    {
+        $mtx.ReleaseMutex() | Out-Null
+        $mtx.Dispose() | Out-Null
+    }
 }
 
 # Note: This is a hack to make Qt5 work.
