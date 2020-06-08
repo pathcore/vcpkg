@@ -56,49 +56,56 @@ function resolve([string]$targetBinary) {
         return
     }
 
-    try
-    {
-        $mtx = New-Object System.Threading.Mutex($false, "VcpkgAppLocalResolve")
-        $mtx.WaitOne() | Out-Null
+    $targetBinaryDir = Split-Path $targetBinaryPath -parent
 
-        $targetBinaryDir = Split-Path $targetBinaryPath -parent
-
-        $a = $(dumpbin /DEPENDENTS $targetBinary | ? { $_ -match "^    [^ ].*\.dll" } | % { $_ -replace "^    ","" })
-        $a | % {
-            if ([string]::IsNullOrEmpty($_)) {
-                return
-            }
-            if ($g_searched.ContainsKey($_)) {
-                Write-Verbose "  ${_}: previously searched - Skip"
-                return
-            }
-            $g_searched.Set_Item($_, $true)
-            if (Test-Path "$installedDir\$_") {
-                deployBinary $baseTargetBinaryDir $installedDir "$_"
-                if (Test-Path function:\deployPluginsIfQt) { deployPluginsIfQt $baseTargetBinaryDir "$g_install_root\plugins" "$_" }
-                if (Test-Path function:\deployOpenNI2) { deployOpenNI2 $targetBinaryDir "$g_install_root" "$_" }
-                if (Test-Path function:\deployPluginsIfMagnum) {
-                    if ($g_is_debug) {
-                        deployPluginsIfMagnum $targetBinaryDir "$g_install_root\bin\magnum-d" "$_"
-                    } else {
-                        deployPluginsIfMagnum $targetBinaryDir "$g_install_root\bin\magnum" "$_"
-                    }
-                }
-                if (Test-Path function:\deployAzureKinectSensorSDK) { deployAzureKinectSensorSDK $targetBinaryDir "$g_install_root" "$_" }
-                resolve "$baseTargetBinaryDir\$_"
-            } elseif (Test-Path "$targetBinaryDir\$_") {
-                Write-Verbose "  ${_}: $_ not found in vcpkg; locally deployed"
-                resolve "$targetBinaryDir\$_"
-            } else {
-                Write-Verbose "  ${_}: $installedDir\$_ not found"
-            }
+    $a = $(dumpbin /DEPENDENTS $targetBinary | ? { $_ -match "^    [^ ].*\.dll" } | % { $_ -replace "^    ","" })
+    $a | % {
+        if ([string]::IsNullOrEmpty($_)) {
+            return
         }
-        Write-Verbose "Done Resolving $targetBinary."
+        if ($g_searched.ContainsKey($_)) {
+            Write-Verbose "  ${_}: previously searched - Skip"
+            return
+        }
+        $g_searched.Set_Item($_, $true)
+        if (Test-Path "$installedDir\$_") {
+            deployBinary $baseTargetBinaryDir $installedDir "$_"
+            if (Test-Path function:\deployPluginsIfQt) { deployPluginsIfQt $baseTargetBinaryDir "$g_install_root\plugins" "$_" }
+            if (Test-Path function:\deployOpenNI2) { deployOpenNI2 $targetBinaryDir "$g_install_root" "$_" }
+            if (Test-Path function:\deployPluginsIfMagnum) {
+                if ($g_is_debug) {
+                    deployPluginsIfMagnum $targetBinaryDir "$g_install_root\bin\magnum-d" "$_"
+                } else {
+                    deployPluginsIfMagnum $targetBinaryDir "$g_install_root\bin\magnum" "$_"
+                }
+            }
+            if (Test-Path function:\deployAzureKinectSensorSDK) { deployAzureKinectSensorSDK $targetBinaryDir "$g_install_root" "$_" }
+            resolve "$baseTargetBinaryDir\$_"
+        } elseif (Test-Path "$targetBinaryDir\$_") {
+            Write-Verbose "  ${_}: $_ not found in vcpkg; locally deployed"
+            resolve "$targetBinaryDir\$_"
+        } else {
+            Write-Verbose "  ${_}: $installedDir\$_ not found"
+        }
+    }
+    Write-Verbose "Done Resolving $targetBinary."
+}
+
+function copyRuntimeDependencies([string]$targetBinary) {
+    try {
+        $mtx = New-Object System.Threading.Mutex($false, "VcpkgAppLocalResolve")
+        if ($mtx) {
+            $mtx.WaitOne() | Out-Null
+        }
+
+        resolve($targetBinary)
     }
     finally
     {
-        $mtx.ReleaseMutex() | Out-Null
-        $mtx.Dispose() | Out-Null
+        if ($mtx) {
+            $mtx.ReleaseMutex() | Out-Null
+            $mtx.Dispose() | Out-Null
+        }
     }
 }
 
@@ -125,5 +132,5 @@ if (Test-Path "$g_install_root\tools\azure-kinect-sensor-sdk\k4adeploy.ps1") {
     . "$g_install_root\tools\azure-kinect-sensor-sdk\k4adeploy.ps1"
 }
 
-resolve($targetBinary)
+copyRuntimeDependencies($targetBinary)
 Write-Verbose $($g_searched | out-string)
