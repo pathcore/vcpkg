@@ -55,7 +55,6 @@ function resolve([string]$targetBinary) {
     {
         return
     }
-
     $targetBinaryDir = Split-Path $targetBinaryPath -parent
 
     $a = $(dumpbin /DEPENDENTS $targetBinary | ? { $_ -match "^    [^ ].*\.dll" } | % { $_ -replace "^    ","" })
